@@ -900,12 +900,14 @@ pub fn generate(input: TokenStream, is_qobject: bool, qt_version: QtVersion) -> 
         let sig_name = &signal.name;
         // if signal == offset_of(signal field) then *result = index and return.
         quote! { /* externally defined variables: signal, result. */
-            // SAFETY: no dereference of null pointer, only calculation of field's offset over
-            // imaginary struct located at null. In Rust null is 0, thus aligned for any type.
+            // SAFETY: `addr_of!` projects the signal field without creating a reference
+            // or reading the uninitialized value. The projection is within `base`'s
+            // `MaybeUninit` storage; subtracting these addresses yields the field offset.
             let offset = unsafe {
-                let base = ::std::ptr::null() as *const #name #ty_generics;
-                let field = (&(*base).#sig_name) as *const _ as usize;
-                field - (base as usize)
+                let storage = ::std::mem::MaybeUninit::<#name #ty_generics>::uninit();
+                let base = storage.as_ptr();
+                let field = ::std::ptr::addr_of!((*base).#sig_name);
+                (field as usize) - (base as usize)
             };
             if signal == offset  {
                 *result = #i as i32;
